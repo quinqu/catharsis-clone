@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -49,6 +50,8 @@ type AuthServer struct {
 	soundcloudToken      string
 	tokenMutex           sync.RWMutex
 	soundCloudTokenMutex sync.RWMutex
+	secrets              map[string]string
+	secretsMutex         sync.RWMutex
 }
 
 // NewAuthServer creates a new authentication server
@@ -381,10 +384,10 @@ func (s *AuthServer) HandleSoundcloudCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	fmt.Printf("received code: %s\n", code)
+	fmt.Printf("soundcloud: received code: %s\n", code)
 
 	// Exchange code for token
-	token, err := exchangeCodeForToken(code)
+	token, err := s.exchangeCodeForToken(code)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Token exchange failed: %v", err), http.StatusInternalServerError)
 		return
@@ -399,17 +402,16 @@ func (s *AuthServer) HandleSoundcloudCallback(w http.ResponseWriter, r *http.Req
 	http.Redirect(w, r, "/clone-playlists", http.StatusPermanentRedirect)
 }
 
-func (s *AuthServer) HandleClonePlaylists(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "cloning playlists...")
-
-}
-
 // Exchange authorization code for access token
-func exchangeCodeForToken(code string) (*TokenResponse, error) {
+func (s *AuthServer) exchangeCodeForToken(code string) (*TokenResponse, error) {
 	// Prepare form data
 	data := url.Values{}
-	data.Set("client_id", secrets[SOUNDCLOUD_CLIENT_ID_KEY])
-	data.Set("client_secret", secrets[SOUNDCLOUD_CLIENT_SECRET_KEY])
+
+	s.secretsMutex.Lock()
+	data.Set("client_id", s.secrets[SOUNDCLOUD_CLIENT_ID_KEY])
+	data.Set("client_secret", s.secrets[SOUNDCLOUD_CLIENT_SECRET_KEY])
+	s.secretsMutex.Unlock()
+
 	data.Set("grant_type", "authorization_code")
 
 	data.Set("code", code) // The code from the callback
@@ -485,7 +487,7 @@ func (s *AuthServer) HandleClone(w http.ResponseWriter, r *http.Request) {
 		log.Println(errorMsg)
 		fmt.Fprint(w, errorMsg)
 	}
-	fmt.Println("code verifier")
+
 	fmt.Println(codeVerifier)
 	filePath := "output.txt"
 
@@ -498,16 +500,17 @@ func (s *AuthServer) HandleClone(w http.ResponseWriter, r *http.Request) {
 	sha2 := sha256.New()
 	io.WriteString(sha2, codeVerifier)
 	codeChallenge := base64.RawURLEncoding.EncodeToString(sha2.Sum(nil))
-
+	s.secretsMutex.Lock()
 	authURL := "https://api.soundcloud.com/connect?" + url.Values{
-		"client_id":             {secrets[SOUNDCLOUD_CLIENT_ID_KEY]},
-		"redirect_uri":          {secrets[SOUNDCLOUD_REDIRECT_URI_KEY]},
+		"client_id":             {s.secrets[SOUNDCLOUD_CLIENT_ID_KEY]},
+		"redirect_uri":          {s.secrets[SOUNDCLOUD_REDIRECT_URI_KEY]},
 		"response_type":         {"code"},
 		"scope":                 {},
 		"state":                 {"test"},        // random string for security
 		"code_challenge":        {codeChallenge}, // using PKCE
 		"code_challenge_method": {"S256"},
 	}.Encode()
+	s.secretsMutex.Unlock()
 
 	http.Redirect(w, r, authURL, http.StatusPermanentRedirect)
 }
@@ -642,16 +645,10 @@ const (
 	SOUNDCLOUD_REDIRECT_URI_KEY  = "SOUNDCLOUD_REDIRECT_URI"
 )
 
-var (
-	secrets = map[string]string{}
-)
-
-func init() {
-	secrets = loadSecrets("./secrets.yml")
-	fmt.Printf("%+v", secrets)
-}
-
 func main() {
+
+	secrets := loadSecrets("./secrets.yml")
+	fmt.Printf("%+v", secrets)
 
 	config := Config{
 		ClientID:     secrets[SPOTIFY_CLIENT_ID_KEY],
@@ -664,6 +661,9 @@ func main() {
 
 	// Create auth server
 	authServer := NewAuthServer(config)
+	authServer.secretsMutex.Lock()
+	authServer.secrets = loadSecrets("./secrets.yml")
+	authServer.secretsMutex.Unlock()
 
 	// Setup routes
 	http.HandleFunc("/", authServer.HandleIndex)
@@ -681,20 +681,6 @@ func main() {
 
 	// Start server
 	log.Fatal(http.ListenAndServe(":"+config.Port /*"cert.pem", "key.pem",*/, nil))
-}
-
-// SoundCloudTrack represents basic track info
-type SoundCloudTrack struct {
-	ID           int    `json:"id"`
-	Title        string `json:"title"`
-	Duration     int    `json:"duration"`
-	PermalinkURL string `json:"permalink_url"`
-	ArtworkURL   string `json:"artwork_url"`
-	StreamURL    string `json:"stream_url"`
-	Genre        string `json:"genre"`
-	User         struct {
-		Username string `json:"username"`
-	} `json:"user"`
 }
 
 func searchSoundCloud(query, scToken string) ([]SoundCloudTrack, error) {
@@ -863,4 +849,220 @@ func loadSecrets(path string) map[string]string {
 		log.Fatal(err)
 	}
 	return secrets
+}
+
+func (s *AuthServer) HandleClonePlaylists(w http.ResponseWriter, r *http.Request) {
+	playlists, err := s.getPlaylistsSpotify()
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "failed to get spotify playlists", http.StatusInternalServerError)
+		return
+	}
+
+	playlist := playlists[0]
+	tracks, err := s.getTracksSpotify(playlist.ID)
+	if err != nil {
+		log.Printf("Error getting tracks for playlist %s: %v\n", playlist.ID, err)
+	}
+
+	// Search for the tracks in SoundCloud and save those IDs
+	var soundcloudTrackIDs []string
+	for _, track := range tracks {
+		// Search SoundCloud using track name and artist
+		searchQuery := fmt.Sprintf("%s %s", track.Name, track.Artist)
+		scTrackID, err := s.searchSoundCloudTrack(searchQuery)
+		if err != nil {
+			log.Printf("soundcloud: unable to find soundcloud track for: %s - %s: %v\n", track.Artist, track.Name, err)
+		}
+		if scTrackID != "" {
+			soundcloudTrackIDs = append(soundcloudTrackIDs, scTrackID)
+		}
+	}
+
+	if len(soundcloudTrackIDs) == 0 {
+		log.Printf("no tracks found on soundcloud for playlist: %s\n", playlist.Name)
+	}
+
+	// Create the playlist in SoundCloud and add songs
+	scPlaylistID, err := s.createSoundCloudPlaylist(playlist.Name, "generated by Catharsis Clone")
+	if err != nil {
+		log.Printf("error creating soundcloud playlist %s: %v\n", playlist.Name, err)
+	}
+
+	err = s.addTracksToSoundCloudPlaylist(scPlaylistID, soundcloudTrackIDs)
+	if err != nil {
+		log.Printf("error adding tracks to soundCloud playlist %s: %v\n", playlist.Name, err)
+	}
+
+	log.Printf("Successfully cloned playlist: %s (%d/%d tracks)\n",
+		playlist.Name, len(soundcloudTrackIDs), len(tracks))
+
+	fmt.Fprintf(w, "\nPlaylist cloning complete!")
+}
+
+// searchSoundCloudTrack searches for a track on SoundCloud and returns its ID
+func (s *AuthServer) searchSoundCloudTrack(query string) (string, error) {
+	s.soundCloudTokenMutex.RLock()
+	token := s.soundcloudToken
+	s.soundCloudTokenMutex.RUnlock()
+
+	if token == "" {
+		return "", fmt.Errorf("no SoundCloud token available")
+	}
+
+	// SoundCloud API search endpoint
+	searchURL := fmt.Sprintf("https://api.soundcloud.com/tracks?q=%s&limit=1",
+		url.QueryEscape(query))
+
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "OAuth "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("soundcloud API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	fmt.Println(string(body))
+	var soundcloudResp []SoundCloudTrack
+
+	err = json.Unmarshal(body, &soundcloudResp)
+
+	if len(soundcloudResp) == 0 {
+		return "", fmt.Errorf("no results found")
+	}
+
+	return fmt.Sprintf("%d", soundcloudResp[0].ID), nil
+}
+
+// SoundCloudTrack represents basic track info
+type SoundCloudTrack struct {
+	ID           int    `json:"id"`
+	Title        string `json:"title"`
+	Duration     int    `json:"duration"`
+	PermalinkURL string `json:"permalink_url"`
+	ArtworkURL   string `json:"artwork_url"`
+	StreamURL    string `json:"stream_url"`
+	Genre        string `json:"genre"`
+	User         struct {
+		Username string `json:"username"`
+	} `json:"user"`
+}
+
+// createSoundCloudPlaylist creates a new playlist on SoundCloud
+func (s *AuthServer) createSoundCloudPlaylist(name, description string) (string, error) {
+	s.soundCloudTokenMutex.RLock()
+	token := s.soundcloudToken
+	s.soundCloudTokenMutex.RUnlock()
+
+	if token == "" {
+		return "", fmt.Errorf("no SoundCloud token available")
+	}
+
+	playlistData := map[string]interface{}{
+		"playlist": map[string]string{
+			"title":       name,
+			"description": description,
+			"sharing":     "public",
+		},
+	}
+
+	jsonData, err := json.Marshal(playlistData)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://api.soundcloud.com/playlists",
+		bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "OAuth "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create playlist: %d - %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		ID int `json:"id"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%d", result.ID), nil
+}
+
+// addTracksToSoundCloudPlaylist adds tracks to a SoundCloud playlist
+func (s *AuthServer) addTracksToSoundCloudPlaylist(playlistID string, trackIDs []string) error {
+	s.soundCloudTokenMutex.RLock()
+	token := s.soundcloudToken
+	s.soundCloudTokenMutex.RUnlock()
+
+	if token == "" {
+		return fmt.Errorf("no SoundCloud token available")
+	}
+
+	// Build tracks array
+	var tracks []map[string]string
+	for _, trackID := range trackIDs {
+		tracks = append(tracks, map[string]string{"id": trackID})
+	}
+
+	updateData := map[string]interface{}{
+		"playlist": map[string]interface{}{
+			"tracks": tracks,
+		},
+	}
+
+	jsonData, err := json.Marshal(updateData)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("https://api.soundcloud.com/playlists/%s", playlistID)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "OAuth "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to add tracks: %d - %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }

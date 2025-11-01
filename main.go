@@ -488,6 +488,7 @@ func (s *AuthServer) HandleSoundcloudCallback(w http.ResponseWriter, r *http.Req
 }
 
 func (s *AuthServer) HandleSoundcloudLogin(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("logging in with sc -- connect endpoint ")
 	codeVerifier, err := randomBytesInHex(32)
 	if err != nil {
 		errorMsg := fmt.Sprintf("unable to create code challenge, error: %s", err)
@@ -495,8 +496,9 @@ func (s *AuthServer) HandleSoundcloudLogin(w http.ResponseWriter, r *http.Reques
 		fmt.Fprint(w, errorMsg)
 	}
 
-	fmt.Println(codeVerifier)
-	filePath := "output.txt"
+	filePath := "./output.txt"
+	cwd, _ := os.Getwd()
+	log.Fatalf("Writing to: %s/%s\n", cwd, filePath)
 
 	// os.WriteFile takes: file path, data as a byte slice, and file permissions
 	err = os.WriteFile(filePath, []byte(codeVerifier), 0644)
@@ -761,6 +763,9 @@ func (s *AuthServer) exchangeCodeForToken(code string) (*TokenResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
+
+	fmt.Println("!!!!! scscsc")
+	fmt.Println(string(body))
 
 	// Check for non-200 status
 	if resp.StatusCode != http.StatusOK {

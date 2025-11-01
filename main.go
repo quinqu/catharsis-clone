@@ -76,22 +76,6 @@ func NewAuthServer(cfg Config) *AuthServer {
 	}
 }
 
-// generateState creates a secure random state string
-func generateState() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return base64.URLEncoding.EncodeToString(b)
-}
-
-// saveState stores a state with expiration
-func (s *AuthServer) saveState(state string) {
-	s.statesMutex.Lock()
-	defer s.statesMutex.Unlock()
-	s.states[state] = time.Now().Add(5 * time.Minute)
-}
-
 // validateState checks if state is valid and removes it
 func (s *AuthServer) validateState(state string) bool {
 	s.statesMutex.Lock()
@@ -193,99 +177,163 @@ func (s *AuthServer) HandleCallback(w http.ResponseWriter, r *http.Request) {
 <head>
 	<title>Authentication Successful</title>
 	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
 		body {
 			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 			display: flex;
 			justify-content: center;
 			align-items: center;
 			min-height: 100vh;
-			margin: 0;
-			background: linear-gradient(135deg, #1DB954 0%%, #191414 100%%);
+			background: #000;
+			overflow: hidden;
+			position: relative;
+		}
+		.stars {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%%;
+			height: 100%%;
+			pointer-events: none;
+		}
+		.star {
+			position: absolute;
+			width: 2px;
+			height: 2px;
+			background: #E88874;
+			opacity: 0;
+			animation: twinkle 3s infinite;
+		}
+		@keyframes twinkle {
+			0%%, 100%% { opacity: 0; }
+			50%% { opacity: 1; }
 		}
 		.container {
-			background: white;
-			padding: 40px;
-			border-radius: 12px;
-			box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+			background: rgba(20, 20, 20, 0.8);
+			backdrop-filter: blur(10px);
+			padding: 60px 50px;
+			box-shadow: 0 4px 32px rgba(0, 0, 0, 0.15);
 			text-align: center;
 			max-width: 500px;
-		}
-		h1 {
-			color: #1DB954;
-			margin-top: 0;
-		}
-		.user-info {
-			margin: 20px 0;
-			padding: 20px;
-			background: #f8f9fa;
-			border-radius: 8px;
-		}
-		.user-info p {
-			margin: 10px 0;
-			color: #333;
-		}
-		.token {
-			font-family: monospace;
-			font-size: 12px;
-			color: #666;
-			word-break: break-all;
-			margin-top: 10px;
+			width: 100%%;
+			position: relative;
+			z-index: 1;
 		}
 		.success-icon {
 			font-size: 48px;
 			margin-bottom: 20px;
 		}
+		h1 {
+			color: #FFFFFF;
+			font-size: 28px;
+			font-weight: 500;
+			margin-bottom: 24px;
+			letter-spacing: -0.5px;
+		}
+		.user-info {
+			margin: 24px 0;
+			padding: 20px;
+			background: rgba(40, 40, 40, 0.6);
+			text-align: left;
+		}
+		.user-info p {
+			margin: 10px 0;
+			color: #CCCCCC;
+			font-size: 14px;
+		}
+		.user-info strong {
+			color: #FFFFFF;
+		}
+		.divider {
+			height: 1px;
+			background: rgba(255, 255, 255, 0.1);
+			margin: 32px 0;
+		}
+		.soundcloud-section {
+			margin-top: 32px;
+		}
+		.soundcloud-section p {
+			color: #AAAAAA;
+			font-size: 15px;
+			margin-bottom: 24px;
+		}
+		.login-btn {
+			background: #E88874;
+			color: white;
+			border: none;
+			padding: 14px 36px;
+			font-size: 15px;
+			font-weight: 500;
+			cursor: pointer;
+			text-decoration: none;
+			display: inline-block;
+			transition: background 0.2s ease;
+			margin: 8px;
+		}
+		.login-btn:hover {
+			background: #F7931E;
+		}
+		.login-btn.secondary {
+			background: rgba(255, 255, 255, 0.1);
+		}
+		.login-btn.secondary:hover {
+			background: rgba(255, 255, 255, 0.2);
+		}
+		.token {
+			font-family: monospace;
+			font-size: 11px;
+			color: #666;
+			word-break: break-all;
+			margin-top: 24px;
+		}
 	</style>
 </head>
 <body>
+	<div class="stars" id="stars"></div>
 	<div class="container">
 		<div class="success-icon">✓</div>
-		<h1>Authentication Successful!</h1>
+		<h1>Successfully Authenticated</h1>
 		<div class="user-info">
-			<p><strong>Welcome, %s!</strong></p>
-			<p>Email: %s</p>
-			<p>Country: %s</p>
+			<p><strong>%s</strong></p>
+			<p>%s</p>
+			<p>%s</p>
 		</div>
+		
 
-		<a href="/clone" class="login-btn">Clone Playlists</a>
+		<div class="divider"></div>
+
+		<div class="soundcloud-section">
+			<p> Sign into SoundCloud to Clone Playlists </p>
+			<a href="/sc-login" class="login-btn secondary">Login with SoundCloud</a>
+		</div>
 
 		<div class="token">
 			<small>Token: %s...</small>
 		</div>
 	</div>
+	<script>
+		const starsContainer = document.getElementById('stars');
+		const colors = ['#E88874', '#FE3B6AC', '#FFFFFF'];
+		
+		for (let i = 0; i < 100; i++) {
+			const star = document.createElement('div');
+			star.className = 'star';
+			star.style.left = Math.random() * 100 + '%%';
+			star.style.top = Math.random() * 100 + '%%';
+			star.style.background = colors[Math.floor(Math.random() * colors.length)];
+			star.style.animationDelay = Math.random() * 3 + 's';
+			star.style.animationDuration = (Math.random() * 2 + 2) + 's';
+			starsContainer.appendChild(star);
+		}
+	</script>
 </body>
 </html>
 	`, user.DisplayName, user.Email, user.Country, token.AccessToken[:20])
 
-}
-
-// GetToken returns the stored authentication token
-func (s *AuthServer) GetToken() *oauth2.Token {
-	s.tokenMutex.RLock()
-	defer s.tokenMutex.RUnlock()
-	return s.token
-}
-
-// getUserInfo fetches user information from Spotify API
-func (s *AuthServer) getUserInfo(ctx context.Context, token *oauth2.Token) (*SpotifyUser, error) {
-	client := s.config.Client(ctx, token)
-
-	resp, err := client.Get("https://api.spotify.com/v1/me")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user info: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("spotify API returned status %d", resp.StatusCode)
-	}
-
-	var user SpotifyUser
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, fmt.Errorf("failed to decode user info: %w", err)
-	}
-
-	return &user, nil
 }
 
 // HandleIndex serves the home page with login button
@@ -297,71 +345,108 @@ func (s *AuthServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
 <head>
 	<title>Spotify OAuth</title>
 	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
 		body {
 			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 			display: flex;
 			justify-content: center;
 			align-items: center;
 			min-height: 100vh;
-			margin: 0;
-			background: linear-gradient(135deg, #1DB954 0%, #191414 100%);
+			background: #000;
+			overflow: hidden;
+			position: relative;
+		}
+		.stars {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+		}
+		.star {
+			position: absolute;
+			width: 2px;
+			height: 2px;
+			background: #FF6B35;
+			opacity: 0;
+			animation: twinkle 3s infinite;
+		}
+		@keyframes twinkle {
+			0%, 100% { opacity: 0; }
+			50% { opacity: 1; }
 		}
 		.container {
-			background: white;
-			padding: 60px 40px;
-			border-radius: 12px;
-			box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+			background: rgba(20, 20, 20, 0.8);
+			backdrop-filter: blur(10px);
+			padding: 60px 50px;
+			box-shadow: 0 4px 32px rgba(0, 0, 0, 0.15);
 			text-align: center;
-			max-width: 500px;
-		}
-		h1 {
-			color: #191414;
-			margin-top: 0;
+			max-width: 450px;
+			width: 100%;
+			position: relative;
+			z-index: 1;
 		}
 		.spotify-logo {
-			font-size: 64px;
+			font-size: 48px;
 			margin-bottom: 20px;
 		}
+		h1 {
+			color: #FFFFFF;
+			font-size: 32px;
+			font-weight: 500;
+			margin-bottom: 12px;
+			letter-spacing: -0.5px;
+		}
+		.subtitle {
+			color: #AAAAAA;
+			font-size: 15px;
+			margin-bottom: 36px;
+		}
 		.login-btn {
-			background: #1DB954;
+			background: #E88874;
 			color: white;
 			border: none;
-			padding: 16px 48px;
-			border-radius: 24px;
-			font-size: 16px;
-			font-weight: bold;
+			padding: 14px 36px;
+			font-size: 15px;
+			font-weight: 500;
 			cursor: pointer;
 			text-decoration: none;
 			display: inline-block;
-			margin-top: 20px;
-			transition: background 0.3s;
+			transition: background 0.2s ease;
 		}
 		.login-btn:hover {
-			background: #1ed760;
-		}
-		.info {
-			margin-top: 30px;
-			padding: 20px;
-			background: #f8f9fa;
-			border-radius: 8px;
-			font-size: 14px;
-			color: #666;
-		}
-		code {
-			background: #e9ecef;
-			padding: 2px 6px;
-			border-radius: 3px;
-			font-size: 12px;
+			background: #F7931E;
 		}
 	</style>
 </head>
 <body>
+	<div class="stars" id="stars"></div>
 	<div class="container">
 		<div class="spotify-logo">🎵</div>
-		<h1>Spotify OAuth</h1>
-		<p>Authenticate with your Spotify account to continue</p>
+		<h1>Catharsis Clone</h1>
+		<p class="subtitle">Connect your Spotify account to continue</p>
 		<a href="/login" class="login-btn">Login with Spotify</a>
 	</div>
+	<script>
+		const starsContainer = document.getElementById('stars');
+		const colors = ['#E88874', '#FE3B6AC', '#FFFFFF'];
+		
+		for (let i = 0; i < 100; i++) {
+			const star = document.createElement('div');
+			star.className = 'star';
+			star.style.left = Math.random() * 100 + '%';
+			star.style.top = Math.random() * 100 + '%';
+			star.style.background = colors[Math.floor(Math.random() * colors.length)];
+			star.style.animationDelay = Math.random() * 3 + 's';
+			star.style.animationDuration = (Math.random() * 2 + 2) + 's';
+			starsContainer.appendChild(star);
+		}
+	</script>
 </body>
 </html>
 	`)
@@ -400,6 +485,225 @@ func (s *AuthServer) HandleSoundcloudCallback(w http.ResponseWriter, r *http.Req
 	fmt.Printf("successfully authenticated! soundcloud access token: %s, refresh token: %s, expires in %d seconds\n", token.AccessToken, token.RefreshToken, token.ExpiresIn)
 
 	http.Redirect(w, r, "/clone-playlists", http.StatusPermanentRedirect)
+}
+
+func (s *AuthServer) HandleSoundcloudLogin(w http.ResponseWriter, r *http.Request) {
+	codeVerifier, err := randomBytesInHex(32)
+	if err != nil {
+		errorMsg := fmt.Sprintf("unable to create code challenge, error: %s", err)
+		log.Println(errorMsg)
+		fmt.Fprint(w, errorMsg)
+	}
+
+	fmt.Println(codeVerifier)
+	filePath := "output.txt"
+
+	// os.WriteFile takes: file path, data as a byte slice, and file permissions
+	err = os.WriteFile(filePath, []byte(codeVerifier), 0644)
+	if err != nil {
+		log.Fatalf("Error writing to file: %v", err)
+	}
+
+	sha2 := sha256.New()
+	io.WriteString(sha2, codeVerifier)
+	codeChallenge := base64.RawURLEncoding.EncodeToString(sha2.Sum(nil))
+	s.secretsMutex.Lock()
+	authURL := "https://api.soundcloud.com/connect?" + url.Values{
+		"client_id":             {s.secrets[SOUNDCLOUD_CLIENT_ID_KEY]},
+		"redirect_uri":          {s.secrets[SOUNDCLOUD_REDIRECT_URI_KEY]},
+		"response_type":         {"code"},
+		"scope":                 {},
+		"state":                 {"test"},        // random string for security
+		"code_challenge":        {codeChallenge}, // using PKCE
+		"code_challenge_method": {"S256"},
+	}.Encode()
+	s.secretsMutex.Unlock()
+
+	http.Redirect(w, r, authURL, http.StatusPermanentRedirect)
+}
+
+func (s *AuthServer) HandleClonePlaylists(w http.ResponseWriter, r *http.Request) {
+	playlists, err := s.getPlaylistsSpotify()
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "failed to get spotify playlists", http.StatusInternalServerError)
+		return
+	}
+
+	for _, playlist := range playlists {
+		tracks, err := s.getTracksSpotify(playlist.ID)
+		if err != nil {
+			log.Printf("Error getting tracks for playlist %s: %v\n", playlist.ID, err)
+		}
+
+		// Search for the tracks in SoundCloud and save those IDs
+		var soundcloudTrackIDs []string
+		for _, track := range tracks {
+			// Search SoundCloud using track name and artist
+			searchQuery := fmt.Sprintf("%s %s", track.Name, track.Artist)
+			scTrackID, err := s.searchSoundCloudTrack(searchQuery)
+			if err != nil {
+				log.Printf("soundcloud: unable to find soundcloud track for: %s - %s: %v\n", track.Artist, track.Name, err)
+			}
+			if scTrackID != "" {
+				soundcloudTrackIDs = append(soundcloudTrackIDs, scTrackID)
+			}
+		}
+
+		if len(soundcloudTrackIDs) == 0 {
+			log.Printf("no tracks found on soundcloud for playlist: %s\n", playlist.Name)
+		}
+
+		// Create the playlist in SoundCloud and add songs
+		scPlaylistID, err := s.createSoundCloudPlaylist(playlist.Name, "generated by Catharsis Clone")
+		if err != nil {
+			log.Printf("error creating soundcloud playlist %s: %v\n", playlist.Name, err)
+		}
+
+		err = s.addTracksToSoundCloudPlaylist(scPlaylistID, soundcloudTrackIDs)
+		if err != nil {
+			log.Printf("error adding tracks to soundCloud playlist %s: %v\n", playlist.Name, err)
+		}
+
+		log.Printf("Successfully cloned playlist: %s (%d/%d tracks)\n",
+			playlist.Name, len(soundcloudTrackIDs), len(tracks))
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Cloning Complete</title>
+			<style>
+				* {
+					margin: 0;
+					padding: 0;
+					box-sizing: border-box;
+				}
+				body {
+					font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					min-height: 100vh;
+					background: #000;
+					overflow: hidden;
+					position: relative;
+				}
+				.stars {
+					position: fixed;
+					top: 0;
+					left: 0;
+					width: 100%%;
+					height: 100%%;
+					pointer-events: none;
+				}
+				.star {
+					position: absolute;
+					width: 2px;
+					height: 2px;
+					background: #E88874;
+					opacity: 0;
+					animation: twinkle 3s infinite;
+				}
+				@keyframes twinkle {
+					0%%, 100%% { opacity: 0; }
+					50%% { opacity: 1; }
+				}
+				.container {
+					background: rgba(20, 20, 20, 0.8);
+					backdrop-filter: blur(10px);
+					padding: 60px 50px;
+					box-shadow: 0 4px 32px rgba(0, 0, 0, 0.15);
+					text-align: center;
+					max-width: 450px;
+					width: 100%%;
+					position: relative;
+					z-index: 1;
+				}
+				.success-icon {
+					font-size: 64px;
+					margin-bottom: 20px;
+				}
+				h1 {
+					color: #FFFFFF;
+					font-size: 32px;
+					font-weight: 500;
+					margin-bottom: 12px;
+					letter-spacing: -0.5px;
+				}
+				.subtitle {
+					color: #AAAAAA;
+					font-size: 15px;
+					margin-bottom: 36px;
+				}
+				.done-btn {
+					background: #E88874;
+					color: white;
+					border: none;
+					padding: 14px 36px;
+					font-size: 15px;
+					font-weight: 500;
+					cursor: pointer;
+					text-decoration: none;
+					display: inline-block;
+					transition: background 0.2s ease;
+				}
+				.done-btn:hover {
+					background: #F7931E;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="stars" id="stars"></div>
+			<div class="container">
+				<div class="success-icon">🎉</div>
+				<h1>Cloning Complete!</h1>
+				<p class="subtitle">Your playlists have been successfully cloned to SoundCloud</p>
+				<a href="/" class="done-btn">Done</a>
+			</div>
+			<script>
+				const starsContainer = document.getElementById('stars');
+				const colors = ['#E88874', '#FE3B6AC', '#FFFFFF'];
+				
+				for (let i = 0; i < 100; i++) {
+					const star = document.createElement('div');
+					star.className = 'star';
+					star.style.left = Math.random() * 100 + '%%';
+					star.style.top = Math.random() * 100 + '%%';
+					star.style.background = colors[Math.floor(Math.random() * colors.length)];
+					star.style.animationDelay = Math.random() * 3 + 's';
+					star.style.animationDuration = (Math.random() * 2 + 2) + 's';
+					starsContainer.appendChild(star);
+				}
+			</script>
+		</body>
+		</html>
+		`)
+}
+
+// generateState creates a secure random state string
+func generateState() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+// saveState stores a state with expiration
+func (s *AuthServer) saveState(state string) {
+	s.statesMutex.Lock()
+	defer s.statesMutex.Unlock()
+	s.states[state] = time.Now().Add(5 * time.Minute)
+}
+
+// GetToken returns the stored authentication token
+func (s *AuthServer) GetToken() *oauth2.Token {
+	s.tokenMutex.RLock()
+	defer s.tokenMutex.RUnlock()
+	return s.token
 }
 
 // Exchange authorization code for access token
@@ -480,39 +784,26 @@ type TokenResponse struct {
 	Scope        string `json:"scope"`
 }
 
-func (s *AuthServer) HandleClone(w http.ResponseWriter, r *http.Request) {
-	codeVerifier, err := randomBytesInHex(32)
+// getUserInfo fetches user information from Spotify API
+func (s *AuthServer) getUserInfo(ctx context.Context, token *oauth2.Token) (*SpotifyUser, error) {
+	client := s.config.Client(ctx, token)
+
+	resp, err := client.Get("https://api.spotify.com/v1/me")
 	if err != nil {
-		errorMsg := fmt.Sprintf("unable to create code challenge, error: %s", err)
-		log.Println(errorMsg)
-		fmt.Fprint(w, errorMsg)
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("spotify API returned status %d", resp.StatusCode)
 	}
 
-	fmt.Println(codeVerifier)
-	filePath := "output.txt"
-
-	// os.WriteFile takes: file path, data as a byte slice, and file permissions
-	err = os.WriteFile(filePath, []byte(codeVerifier), 0644)
-	if err != nil {
-		log.Fatalf("Error writing to file: %v", err)
+	var user SpotifyUser
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return nil, fmt.Errorf("failed to decode user info: %w", err)
 	}
 
-	sha2 := sha256.New()
-	io.WriteString(sha2, codeVerifier)
-	codeChallenge := base64.RawURLEncoding.EncodeToString(sha2.Sum(nil))
-	s.secretsMutex.Lock()
-	authURL := "https://api.soundcloud.com/connect?" + url.Values{
-		"client_id":             {s.secrets[SOUNDCLOUD_CLIENT_ID_KEY]},
-		"redirect_uri":          {s.secrets[SOUNDCLOUD_REDIRECT_URI_KEY]},
-		"response_type":         {"code"},
-		"scope":                 {},
-		"state":                 {"test"},        // random string for security
-		"code_challenge":        {codeChallenge}, // using PKCE
-		"code_challenge_method": {"S256"},
-	}.Encode()
-	s.secretsMutex.Unlock()
-
-	http.Redirect(w, r, authURL, http.StatusPermanentRedirect)
+	return &user, nil
 }
 
 type Playlist struct {
@@ -670,7 +961,7 @@ func main() {
 	http.HandleFunc("/login", authServer.HandleLogin)
 	http.HandleFunc("/callback", authServer.HandleCallback)
 	http.HandleFunc("/sc-callback", authServer.HandleSoundcloudCallback)
-	http.HandleFunc("/clone", authServer.HandleClone)
+	http.HandleFunc("/sc-login", authServer.HandleSoundcloudLogin)
 	http.HandleFunc("/clone-playlists", authServer.HandleClonePlaylists)
 
 	// Print startup info
@@ -851,55 +1142,6 @@ func loadSecrets(path string) map[string]string {
 	return secrets
 }
 
-func (s *AuthServer) HandleClonePlaylists(w http.ResponseWriter, r *http.Request) {
-	playlists, err := s.getPlaylistsSpotify()
-	if err != nil {
-		log.Println(err)
-		http.Error(w, "failed to get spotify playlists", http.StatusInternalServerError)
-		return
-	}
-
-	playlist := playlists[0]
-	tracks, err := s.getTracksSpotify(playlist.ID)
-	if err != nil {
-		log.Printf("Error getting tracks for playlist %s: %v\n", playlist.ID, err)
-	}
-
-	// Search for the tracks in SoundCloud and save those IDs
-	var soundcloudTrackIDs []string
-	for _, track := range tracks {
-		// Search SoundCloud using track name and artist
-		searchQuery := fmt.Sprintf("%s %s", track.Name, track.Artist)
-		scTrackID, err := s.searchSoundCloudTrack(searchQuery)
-		if err != nil {
-			log.Printf("soundcloud: unable to find soundcloud track for: %s - %s: %v\n", track.Artist, track.Name, err)
-		}
-		if scTrackID != "" {
-			soundcloudTrackIDs = append(soundcloudTrackIDs, scTrackID)
-		}
-	}
-
-	if len(soundcloudTrackIDs) == 0 {
-		log.Printf("no tracks found on soundcloud for playlist: %s\n", playlist.Name)
-	}
-
-	// Create the playlist in SoundCloud and add songs
-	scPlaylistID, err := s.createSoundCloudPlaylist(playlist.Name, "generated by Catharsis Clone")
-	if err != nil {
-		log.Printf("error creating soundcloud playlist %s: %v\n", playlist.Name, err)
-	}
-
-	err = s.addTracksToSoundCloudPlaylist(scPlaylistID, soundcloudTrackIDs)
-	if err != nil {
-		log.Printf("error adding tracks to soundCloud playlist %s: %v\n", playlist.Name, err)
-	}
-
-	log.Printf("Successfully cloned playlist: %s (%d/%d tracks)\n",
-		playlist.Name, len(soundcloudTrackIDs), len(tracks))
-
-	fmt.Fprintf(w, "\nPlaylist cloning complete!")
-}
-
 // searchSoundCloudTrack searches for a track on SoundCloud and returns its ID
 func (s *AuthServer) searchSoundCloudTrack(query string) (string, error) {
 	s.soundCloudTokenMutex.RLock()
@@ -935,7 +1177,6 @@ func (s *AuthServer) searchSoundCloudTrack(query string) (string, error) {
 		return "", fmt.Errorf("soundcloud API error: %d - %s", resp.StatusCode, string(body))
 	}
 
-	fmt.Println(string(body))
 	var soundcloudResp []SoundCloudTrack
 
 	err = json.Unmarshal(body, &soundcloudResp)

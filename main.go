@@ -1018,7 +1018,6 @@ func searchSoundCloud(query, scToken string) ([]SoundCloudTrack, error) {
 		log.Fatalln(err)
 	}
 	fmt.Println("TOKEN")
-	log.Fatal(scToken)
 
 	fmt.Println("~~~~~~~~~~~~~~~~~~")
 	fmt.Println(string(b))

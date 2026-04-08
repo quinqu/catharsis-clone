@@ -1,5 +1,5 @@
 # catharsis-clone
-Clone Spotify playlists to your Soundcloud account
+Clone Spotify playlists to your Soundcloud account. You will need to run this project to clone, I am not hosting this anywhere. 
 
 ## Clone Flow 
 
